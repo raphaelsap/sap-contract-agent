@@ -34,9 +34,9 @@ def reset_session() -> None:
 
 def main() -> None:
     st.set_page_config(page_title="SAP Contract Invoice Reviewer", layout="centered")
-    st.image("https://www.sap.com/dam/application/shared/logos/sap-logo-svg.svg", width=140)
-    st.title("SAP Contract & Invoice Reviewer")
-    st.caption("GPT-5 (OpenAI) assisted analysis")
+    st.image("https://www.sap.com/dam/application/shared/logos/sap-logo-svg.svg", width=100)
+    st.title("SAP Contract & Invoice Reviewer Agent")
+    st.caption("LLM assisted analysis")
 
     st.markdown(
         "Upload the executed contract PDF and the corresponding invoice spreadsheet. "

@@ -75,7 +75,6 @@ class ContractAgentService:
                     "content": f"{prompt}\n\nOriginal YAML:\n```yaml\n{contract_yaml}\n```",
                 },
             ],
-            temperature=0.1,
             max_completion_tokens=1400,
         )
         path = self.storage.save_text(run_id, "contract_clean", cleaned, suffix=".yaml")
@@ -95,7 +94,6 @@ class ContractAgentService:
                     "content": f"{prompt}\n\nOriginal YAML:\n```yaml\n{invoice_yaml}\n```",
                 },
             ],
-            temperature=0.15,
             max_completion_tokens=1600,
         )
         path = self.storage.save_text(run_id, "invoice_clean", cleaned, suffix=".yaml")
@@ -128,7 +126,6 @@ class ContractAgentService:
                     ),
                 },
             ],
-            temperature=0.15,
             max_completion_tokens=1800,
         )
         path = self.storage.save_markdown(run_id, "compliance_report", response)
@@ -147,7 +144,6 @@ class ContractAgentService:
                     "content": f"{prompt}\n\nClean contract YAML:\n```yaml\n{contract_yaml}\n```",
                 },
             ],
-            temperature=0.2,
             max_completion_tokens=1200,
         )
         path = self.storage.save_markdown(run_id, "contract_review", response)
@@ -166,7 +162,6 @@ class ContractAgentService:
                     "content": f"{prompt}\n\nClean contract YAML:\n```yaml\n{contract_yaml}\n```",
                 },
             ],
-            temperature=0.1,
             max_completion_tokens=1200,
         )
         path = self.storage.save_markdown(run_id, "contract_translation_es", response)

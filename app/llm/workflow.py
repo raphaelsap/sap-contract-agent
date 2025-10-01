@@ -52,7 +52,6 @@ def build_workflow(client: Any, *, extra_instructions: Optional[str] = None):
                 {"role": "system", "content": "You operate within SAP BTP AI Core as a meticulous contract compliance analyst who produces concise, structured reviews."},
                 {"role": "user", "content": user_prompt},
             ],
-            temperature=0.15,
             max_completion_tokens=1500,
         )
         return {"comment_md": response}

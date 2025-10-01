@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import requests
 
@@ -32,17 +32,16 @@ class OpenAIChatClient:
         self,
         messages: List[Dict[str, str]],
         *,
-        temperature: float = 0.2,
         max_completion_tokens: int = 900,
-        top_p: float = 1.0,
+        temperature: Optional[float] = None,
     ) -> str:
         payload: Dict[str, Any] = {
             "model": self.model,
             "messages": messages,
-            "temperature": temperature,
             "max_completion_tokens": max_completion_tokens,
-            "top_p": top_p,
         }
+        if temperature is not None:
+            payload["temperature"] = temperature
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
@@ -63,6 +62,8 @@ class OpenAIChatClient:
             raise OpenAIClientError("OpenAI response did not contain choices")
         message = choices[0].get("message") or {}
         content = message.get("content")
-        if not content:
-            raise OpenAIClientError("OpenAI response did not contain message content")
+        if content is None:
+            if message.get("tool_calls"):
+                return str(message["tool_calls"])
+            return str(body)
         return content
