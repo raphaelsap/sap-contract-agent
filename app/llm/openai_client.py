@@ -33,13 +33,15 @@ class OpenAIChatClient:
         messages: List[Dict[str, str]],
         *,
         temperature: float = 0.2,
-        max_tokens: int = 900,
+        max_completion_tokens: int = 900,
+        top_p: float = 1.0,
     ) -> str:
         payload: Dict[str, Any] = {
             "model": self.model,
             "messages": messages,
             "temperature": temperature,
-            "max_tokens": max_tokens,
+            "max_completion_tokens": max_completion_tokens,
+            "top_p": top_p,
         }
         headers = {
             "Authorization": f"Bearer {self.api_key}",

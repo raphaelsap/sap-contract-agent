@@ -5,7 +5,6 @@ import logging
 import time
 
 import streamlit as st
-import yaml
 
 from app.service import get_service
 
@@ -34,13 +33,15 @@ def reset_session() -> None:
 
 
 def main() -> None:
-    st.set_page_config(page_title="SAP Contract Invoice Reviewer Agent", layout="centered")
-    st.title("SAP BTP AI Agent")
-    st.title("Contract-Invoice Reviewer 🕵️📑")
+    st.set_page_config(page_title="SAP Contract Invoice Reviewer", layout="centered")
+    st.image("https://www.sap.com/dam/application/shared/logos/sap-logo-svg.svg", width=140)
+    st.title("SAP Contract & Invoice Reviewer")
+    st.caption("GPT-5 (OpenAI) assisted analysis")
 
     st.markdown(
         "Upload the executed contract PDF and the corresponding invoice spreadsheet. "
-        "A SAP BTP AI Core-powered agent will check each invoice line item against the contract clauses and summarise the compliance results."
+        "This assistant normalises the data, uses GPT-5 via OpenAI to compare each invoice line against the contract, "
+        "highlights potential risks, and provides a Spanish translation of the core obligations."
     )
 
     if "run_state" not in st.session_state:
@@ -60,7 +61,7 @@ def main() -> None:
                 "Optional reviewer instructions",
                 value=st.session_state.get("prompt_override", ""),
                 placeholder="e.g. Pay special attention to demurrage charges for terminal MICT.",
-                help="Temporarily extend the SAP BTP AI Core reviewer prompt for this run only.",
+                help="Temporarily extend the GPT-5 reviewer prompt for this run only.",
             )
             submitted = st.form_submit_button("Start review")
 
@@ -101,19 +102,35 @@ def main() -> None:
                     run_id=run_id,
                 )
 
-                status.write("Running compliance analysis with SAP BTP AI Core…")
-                analysis = service.run_analysis(
-                    contract_summary_yaml=result["contract_summary_yaml"],
-                    invoice_summary_yaml=result["invoice_summary_yaml"],
-                    run_id=run_id,
+                status.write("Cleaning contract YAML…")
+                contract_clean = service.clean_contract_yaml(run_id, result["contract_yaml"])
+
+                status.write("Cleaning invoice YAML…")
+                invoice_clean = service.clean_invoice_yaml(run_id, result["invoice_yaml"])
+
+                status.write("Running GPT-5 compliance analysis…")
+                compliance = service.generate_compliance_report(
+                    run_id,
+                    contract_yaml=contract_clean["content"],
+                    invoice_yaml=invoice_clean["content"],
                     extra_instructions=st.session_state.get("prompt_override"),
                 )
+
+                status.write("Reviewing contract obligations…")
+                contract_review = service.generate_contract_review(run_id, contract_clean["content"])
+
+                status.write("Translating contract summary…")
+                translation = service.generate_translation(run_id, contract_clean["content"])
 
                 processing_seconds = time.time() - st.session_state.get("processing_started", time.time())
                 st.session_state["result_bundle"] = {
                     "run_id": run_id,
                     "result": result,
-                    "analysis": analysis,
+                    "contract_clean": contract_clean,
+                    "invoice_clean": invoice_clean,
+                    "compliance": compliance,
+                    "contract_review": contract_review,
+                    "translation": translation,
                     "processing_seconds": processing_seconds,
                 }
                 st.session_state["run_state"] = "done"
@@ -142,34 +159,53 @@ def main() -> None:
         bundle: Dict[str, Any] = st.session_state.get("result_bundle", {})
         run_id = bundle.get("run_id")
         result = bundle.get("result", {})
-        analysis = bundle.get("analysis", {})
+        contract_clean = bundle.get("contract_clean", {})
+        invoice_clean = bundle.get("invoice_clean", {})
+        compliance = bundle.get("compliance", {})
+        contract_review = bundle.get("contract_review", {})
+        translation = bundle.get("translation", {})
         processing_seconds = bundle.get("processing_seconds", 0.0)
 
         st.success(f"Review complete for run {run_id} in {format_duration(processing_seconds)}.")
 
         st.subheader("Compliance overview")
-        st.markdown(analysis.get("comment_md", "No output."))
+        st.markdown(compliance.get("content", "No output."))
 
         if st.session_state.get("prompt_override"):
             with st.expander("Custom reviewer instructions"):
                 st.markdown(st.session_state["prompt_override"])
 
-        with st.expander("Contract summary (YAML)"):
-            st.code(result.get("contract_summary_yaml", ""), language="yaml")
-            st.caption(f"Stored at {result.get('contract_summary_path')}")
+        with st.expander("Cleaned contract YAML"):
+            st.code(contract_clean.get("content", ""), language="yaml")
+            if contract_clean.get("path"):
+                st.caption(f"Stored at {contract_clean['path']}")
 
-        with st.expander("Invoice summary with line items (YAML)"):
-            st.code(result.get("invoice_summary_yaml", ""), language="yaml")
-            st.caption(f"Stored at {result.get('invoice_summary_path')}")
+        with st.expander("Cleaned invoice YAML"):
+            st.code(invoice_clean.get("content", ""), language="yaml")
+            if invoice_clean.get("path"):
+                st.caption(f"Stored at {invoice_clean['path']}")
 
-        with st.expander("Full raw outputs"):
+        with st.expander("Contract risk review"):
+            st.markdown(contract_review.get("content", ""))
+            if contract_review.get("path"):
+                st.caption(f"Stored at {contract_review['path']}")
+
+        with st.expander("Contract summary translation (Spanish)"):
+            st.markdown(translation.get("content", ""))
+            if translation.get("path"):
+                st.caption(f"Stored at {translation['path']}")
+
+        with st.expander("Raw artefacts"):
             st.code(result.get("contract_yaml", ""), language="yaml")
+            if result.get("contract_yaml_path"):
+                st.caption(f"Raw contract YAML stored at {result['contract_yaml_path']}")
             st.code(result.get("invoice_yaml", ""), language="yaml")
-            st.code(analysis.get("comment_md", ""), language="markdown")
+            if result.get("invoice_yaml_path"):
+                st.caption(f"Raw invoice YAML stored at {result['invoice_yaml_path']}")
 
         time_saved = max(0.0, 7200 - processing_seconds)
         st.info(
-            f"SAP BTP AI Core processing time: {format_duration(processing_seconds)}. "
+            f"GPT-5 processing time: {format_duration(processing_seconds)}. "
             f"Estimated manual effort saved: {format_duration(time_saved)}."
         )
 

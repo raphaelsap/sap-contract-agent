@@ -29,6 +29,7 @@ class Settings:
     sap_aicore_auth_url: str
     sap_aicore_api_base: str
     sap_aicore_deployment_id: str
+    sap_aicore_model_name: str
     sap_aicore_resource_group: str
     sap_aicore_scope: Optional[str]
     sap_aicore_api_version: str
@@ -36,6 +37,9 @@ class Settings:
     artefact_storage_path: Path
     chat_completions_path: Optional[str]
     request_timeout: float
+    openai_api_key: str
+    openai_api_base: str
+    openai_model: str
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -50,6 +54,7 @@ class Settings:
             sap_aicore_auth_url=os.getenv("SAP_AICORE_AUTH_URL", ""),
             sap_aicore_api_base=os.getenv("SAP_AICORE_API_BASE", ""),
             sap_aicore_deployment_id=os.getenv("SAP_AICORE_DEPLOYMENT_ID", ""),
+            sap_aicore_model_name=os.getenv("SAP_AICORE_MODEL_NAME", ""),
             sap_aicore_resource_group=os.getenv("SAP_AICORE_RESOURCE_GROUP", "default"),
             sap_aicore_scope=os.getenv("SAP_AICORE_SCOPE"),
             sap_aicore_api_version=os.getenv("SAP_AICORE_API_VERSION", "2023-05-15"),
@@ -57,6 +62,9 @@ class Settings:
             artefact_storage_path=artefact_storage,
             chat_completions_path=chat_path,
             request_timeout=timeout,
+            openai_api_key=os.getenv("OPENAI_API_KEY", ""),
+            openai_api_base=os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1"),
+            openai_model=os.getenv("OPENAI_MODEL", "gpt-5"),
         )
 
         settings.data_storage_path.mkdir(parents=True, exist_ok=True)

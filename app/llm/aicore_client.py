@@ -22,6 +22,7 @@ class SAPAICoreClient:
         auth_url: str,
         api_base: str,
         deployment_id: str,
+        model_name: str,
         resource_group: str,
         scope: Optional[str],
         chat_completions_path: Optional[str] = None,
@@ -33,9 +34,17 @@ class SAPAICoreClient:
         self.auth_url = auth_url.rstrip("/")
         self.api_base = api_base.rstrip("/")
         self.deployment_id = deployment_id
+        self.model_name = model_name
         self.resource_group = resource_group
         self.scope = scope
-        self.chat_completions_path = chat_completions_path or f"/v2/inference/deployments/{deployment_id}/chat/completions"
+        default_path = "/v1/chat/completions"
+        # Allow override for legacy deployment-specific paths
+        if chat_completions_path:
+            self.chat_completions_path = chat_completions_path
+        elif deployment_id and not model_name:
+            self.chat_completions_path = f"/v2/inference/deployments/{deployment_id}/chat/completions"
+        else:
+            self.chat_completions_path = default_path
         self.request_timeout = request_timeout
         self.api_version = api_version
 
@@ -98,13 +107,17 @@ class SAPAICoreClient:
         max_tokens: int = 800,
     ) -> str:
         payload: Dict[str, Any] = {
-            "deployment_id": self.deployment_id,
             "messages": messages,
             "temperature": temperature,
             "max_tokens": max_tokens,
         }
+        if self.model_name:
+            payload["model"] = self.model_name
+        elif self.deployment_id:
+            payload["model"] = self.deployment_id
+
         params: Dict[str, Any] = {}
-        if self.api_version:
+        if self.api_version and "v2" in self.chat_completions_path:
             params["api-version"] = self.api_version
         response = requests.post(
             self._chat_url(),

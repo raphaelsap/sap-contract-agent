@@ -53,7 +53,7 @@ def build_workflow(client: Any, *, extra_instructions: Optional[str] = None):
                 {"role": "user", "content": user_prompt},
             ],
             temperature=0.15,
-            max_tokens=1500,
+            max_completion_tokens=1500,
         )
         return {"comment_md": response}
 

@@ -1,11 +1,11 @@
 # SAP Contract Agent
 
-Streamlit application that extracts structure from contract PDFs and invoice spreadsheets, distils them into concise YAML summaries, and routes them to SAP BTP AI Core to draft a professional compliance review. All intermediate artefacts are persisted for auditability and re-use.
+Streamlit application that extracts structure from contract PDFs and invoice spreadsheets, distils them into concise YAML summaries, and uses GPT-5 (via the OpenAI API) to clean the data, compare contract vs. invoice line items, generate a risk review, and provide a Spanish translation. All intermediate artefacts are persisted for auditability and re-use.
 
 ## Features
 - OCR and structure extraction from PDFs using `unstructured`
 - Spreadsheet normalisation to YAML via `pandas`
-- LangGraph workflow orchestrating SAP BTP AI Core for line-by-line contract vs. invoice compliance analysis
+- Multi-step GPT-5 prompting: YAML clean-up, compliance analysis, contract risk briefing, and translation
 - Streamlit UI with live visibility into extraction summaries and final recommendations
 - Persisted artefacts (`artefacts/`) and analysis outputs (`data/`)
 - Ready for local execution and Cloud Foundry deployment
@@ -13,7 +13,7 @@ Streamlit application that extracts structure from contract PDFs and invoice spr
 ## Prerequisites
 - Python 3.11
 - System dependencies for `unstructured` OCR (Tesseract, Poppler); consult the [unstructured docs](https://unstructured-io.github.io/unstructured/) for installation steps on your OS
-- SAP BTP AI Core deployment ID with access to a generative chat model (e.g. GPT family)
+- OpenAI API key with access to the GPT-5 model (or compatible equivalent)
 
 ## Local Setup
 1. Create and activate a virtual environment.
@@ -26,7 +26,7 @@ Streamlit application that extracts structure from contract PDFs and invoice spr
    pip install --upgrade pip
    pip install -r requirements.txt
    ```
-3. Copy `.env.example` to `.env` and populate with the SAP AI Core credentials (client id, secret, auth URL, API base, deployment id, resource group, scope).
+3. Copy `.env.example` to `.env` and populate with your OpenAI credentials (and optionally SAP AI Core details if you intend to switch back).
    ```bash
    cp .env.example .env
    ```
@@ -37,28 +37,15 @@ Streamlit application that extracts structure from contract PDFs and invoice spr
 5. Upload a contract PDF and an invoice spreadsheet. The app stores originals in `artefacts/<run_id>/` and generated YAML/markdown in `data/<run_id>/`.
 
 ## Environment Variables
-- `SAP_AICORE_CLIENT_ID`, `SAP_AICORE_CLIENT_SECRET`
-- `SAP_AICORE_AUTH_URL` (`https://<identity-zone>.authentication.<region>.hana.ondemand.com`)
-- `SAP_AICORE_API_BASE` (e.g. `https://api.ai.prod.eu-central-1.aws.ml.hana.ondemand.com`)
-- `SAP_AICORE_DEPLOYMENT_ID` (target deployment id)
-- `SAP_AICORE_RESOURCE_GROUP` (often `default`)
-- `SAP_AICORE_SCOPE` (optional depending on tenant configuration)
-- `SAP_AICORE_CHAT_COMPLETIONS_PATH` (override if your deployment exposes a non-default path)
-- `SAP_AICORE_REQUEST_TIMEOUT` (optional)
+- `OPENAI_API_KEY` (required)
+- `OPENAI_API_BASE` (optional, defaults to `https://api.openai.com/v1`)
+- `OPENAI_MODEL` (defaults to `gpt-5`)
 - `DATA_STORAGE_PATH`, `ARTEFACT_STORAGE_PATH` (optional overrides for persistence folders)
+- Optional legacy SAP AI Core variables are still read (`SAP_AICORE_*`) but unused in the default GPT-5 flow.
 
 ## Cloud Foundry Deployment
-1. Make sure the target org/space has access to the Python buildpack and that the AI Core credentials are available (user-provided service or environment variables).
-2. Set the environment variables expected by the app. Example:
-   ```bash
-   cf set-env sap-contract-agent SAP_AICORE_CLIENT_ID <client_id>
-   cf set-env sap-contract-agent SAP_AICORE_CLIENT_SECRET <client_secret>
-   cf set-env sap-contract-agent SAP_AICORE_AUTH_URL <auth_url>
-   cf set-env sap-contract-agent SAP_AICORE_API_BASE <api_base>
-   cf set-env sap-contract-agent SAP_AICORE_DEPLOYMENT_ID <deployment_id>
-   cf set-env sap-contract-agent SAP_AICORE_RESOURCE_GROUP default
-   cf set-env sap-contract-agent SAP_AICORE_SCOPE <scope>
-   ```
+1. Make sure the target org/space has access to the Python buildpack and that the OpenAI credentials can be set as environment variables.
+2. Set at least `OPENAI_API_KEY` (and optionally override `OPENAI_MODEL`).
 3. Push the app.
    ```bash
    cf push
@@ -75,7 +62,7 @@ The deployment uses `Procfile` + `manifest.yml`; Cloud Foundry passes the port v
 │   │   ├── excel_parser.py
 │   │   └── pdf_parser.py
 │   ├── llm
-│   │   ├── aicore_client.py
+│   │   ├── openai_client.py
 │   │   └── workflow.py
 │   ├── utils
 │   │   ├── config.py

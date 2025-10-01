@@ -38,6 +38,11 @@ class StorageManager:
         target.write_text(content, encoding="utf-8")
         return target
 
+    def save_text(self, run_id: str, name: str, content: str, *, suffix: str = ".txt") -> Path:
+        target = self._run_data_dir(run_id) / f"{name}{suffix}"
+        target.write_text(content, encoding="utf-8")
+        return target
+
     def save_raw_file(self, run_id: str, original_name: str, content: bytes) -> Path:
         target = self._run_artefact_dir(run_id) / original_name
         target.write_bytes(content)
