@@ -65,3 +65,49 @@ bower_components/
 dist/
 build/
 out/
+./venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+# Python virtual environments
+venv/
+env/
+.venv/
+.env/
+ENV/
+ENV.bak/
+venv.bak/
+
+# Python egg files
+*.egg
+*.egg-info/
+dist/
+build/
+eggs/
+parts/
+bin/
+var/
+sdist/
+develop-eggs/
+.installed.cfg
+lib/
+lib64/
+__pycache__/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# PyInstaller
+*.manifest
+*.spec
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pytest
+.pytest_cache/
