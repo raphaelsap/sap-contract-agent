@@ -26,6 +26,7 @@ class SAPAICoreClient:
         scope: Optional[str],
         chat_completions_path: Optional[str] = None,
         request_timeout: float = 120.0,
+        api_version: Optional[str] = "2023-05-15",
     ) -> None:
         self.client_id = client_id
         self.client_secret = client_secret
@@ -36,6 +37,7 @@ class SAPAICoreClient:
         self.scope = scope
         self.chat_completions_path = chat_completions_path or f"/v2/inference/deployments/{deployment_id}/chat/completions"
         self.request_timeout = request_timeout
+        self.api_version = api_version
 
         self._token: Optional[str] = None
         self._token_expiry: float = 0.0
@@ -101,10 +103,14 @@ class SAPAICoreClient:
             "temperature": temperature,
             "max_tokens": max_tokens,
         }
+        params: Dict[str, Any] = {}
+        if self.api_version:
+            params["api-version"] = self.api_version
         response = requests.post(
             self._chat_url(),
             headers=self._build_headers(),
             json=payload,
+            params=params,
             timeout=self.request_timeout,
         )
         self._raise_for_status(response)

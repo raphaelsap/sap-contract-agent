@@ -1,19 +1,19 @@
 # SAP Contract Agent
 
-Streamlit application that extracts structure from contract PDFs and invoice spreadsheets, compares them with an LLM hosted on SAP BTP AI Core, and stores the results for review.
+Streamlit application that extracts structure from contract PDFs and invoice spreadsheets, distils them into concise YAML summaries, and routes them to SAP BTP AI Core to draft a professional compliance review. All intermediate artefacts are persisted for auditability and re-use.
 
 ## Features
 - OCR and structure extraction from PDFs using `unstructured`
 - Spreadsheet normalisation to YAML via `pandas`
-- LangGraph workflow that compares contract vs. invoice data and proposes next actions with SAP AI Core
-- Streamlit UI with visibility into intermediate YAML and markdown outputs
+- LangGraph workflow orchestrating SAP BTP AI Core for line-by-line contract vs. invoice compliance analysis
+- Streamlit UI with live visibility into extraction summaries and final recommendations
 - Persisted artefacts (`artefacts/`) and analysis outputs (`data/`)
 - Ready for local execution and Cloud Foundry deployment
 
 ## Prerequisites
 - Python 3.11
 - System dependencies for `unstructured` OCR (Tesseract, Poppler); consult the [unstructured docs](https://unstructured-io.github.io/unstructured/) for installation steps on your OS
-- SAP BTP AI Core deployment ID with access to the generative service
+- SAP BTP AI Core deployment ID with access to a generative chat model (e.g. GPT family)
 
 ## Local Setup
 1. Create and activate a virtual environment.
@@ -40,15 +40,16 @@ Streamlit application that extracts structure from contract PDFs and invoice spr
 - `SAP_AICORE_CLIENT_ID`, `SAP_AICORE_CLIENT_SECRET`
 - `SAP_AICORE_AUTH_URL` (`https://<identity-zone>.authentication.<region>.hana.ondemand.com`)
 - `SAP_AICORE_API_BASE` (e.g. `https://api.ai.prod.eu-central-1.aws.ml.hana.ondemand.com`)
-- `SAP_AICORE_DEPLOYMENT_ID` (target GPT deployment)
+- `SAP_AICORE_DEPLOYMENT_ID` (target deployment id)
 - `SAP_AICORE_RESOURCE_GROUP` (often `default`)
 - `SAP_AICORE_SCOPE` (optional depending on tenant configuration)
 - `SAP_AICORE_CHAT_COMPLETIONS_PATH` (override if your deployment exposes a non-default path)
+- `SAP_AICORE_REQUEST_TIMEOUT` (optional)
 - `DATA_STORAGE_PATH`, `ARTEFACT_STORAGE_PATH` (optional overrides for persistence folders)
 
 ## Cloud Foundry Deployment
 1. Make sure the target org/space has access to the Python buildpack and that the AI Core credentials are available (user-provided service or environment variables).
-2. If using a user-provided service, extract the credentials and set the environment variables expected by the app. Example:
+2. Set the environment variables expected by the app. Example:
    ```bash
    cf set-env sap-contract-agent SAP_AICORE_CLIENT_ID <client_id>
    cf set-env sap-contract-agent SAP_AICORE_CLIENT_SECRET <client_secret>
