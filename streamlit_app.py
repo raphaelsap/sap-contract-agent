@@ -213,6 +213,7 @@ def render_header() -> None:
     st.markdown(
         """
         <div class="headline">
+            <img src="https://www.sap.com/dam/application/shared/logos/sap-logo-svg.svg" alt="SAP" width="96" style="margin-bottom: 1rem;" />
             <div class="agent-chip">🛰️ SAP BTP Contract Agent</div>
             <h1>Continuous Contract & Invoice Alignment</h1>
             <p>Your SAP BTP agent ingests contracts, reads invoices, and reports back with guided actions.</p>
