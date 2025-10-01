@@ -1,0 +1,10 @@
+streamlit>=1.33
+unstructured[local-inference,pdf]>=0.12.5
+pandas>=2.2
+openpyxl>=3.1
+PyYAML>=6.0
+langchain>=0.2.3
+langgraph>=0.0.46
+requests>=2.31
+python-dotenv>=1.0
+tenacity>=8.2
