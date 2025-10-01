@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any, Dict
+import time
 
 import streamlit as st
 import yaml
@@ -231,33 +232,6 @@ def render_header() -> None:
     )
 
 
-def render_run_history() -> None:
-    with st.sidebar:
-        st.markdown("<div class='sidebar-box'>", unsafe_allow_html=True)
-        st.markdown("<h3>Agent Run Log</h3>", unsafe_allow_html=True)
-        runs = service.storage.list_run_directories()
-        st.metric(label="Completed Analyses", value=len(runs))
-        if not runs:
-            st.markdown(
-                "<span>The agent is standing by. Upload a contract and invoice to begin.</span>",
-                unsafe_allow_html=True,
-            )
-        else:
-            for run_id, paths in sorted(runs.items(), reverse=True):
-                st.markdown(
-                    (
-                        "<div class='sidebar-run'><strong>"
-                        f"{run_id}"  # run id
-                        "</strong><span>Data ➜ "
-                        f"{paths['data']}"
-                        "</span><span>Artefacts ➜ "
-                        f"{paths['artefacts']}"
-                        "</span></div>"
-                    ),
-                    unsafe_allow_html=True,
-                )
-        st.markdown("</div>", unsafe_allow_html=True)
-
 
 def render_results(run_id: str, result: Dict[str, str], analysis: Dict[str, str]) -> None:
     contract_payload = yaml.safe_load(result["contract_yaml"]) or {}
@@ -350,7 +324,6 @@ def main() -> None:
     st.set_page_config(page_title="SAP BTP Contract Agent", layout="wide")
     apply_custom_style()
     render_header()
-    render_run_history()
 
     with st.form("upload_form"):
         st.subheader("Deploy a new analysis mission")
