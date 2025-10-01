@@ -35,7 +35,7 @@ def reset_session() -> None:
 
 def main() -> None:
     st.set_page_config(page_title="SAP Contract Invoice Reviewer Agent", layout="centered")
-    st.title("SAP BTP Agent")
+    st.title("SAP BTP AI Agent")
     st.title("Contract-Invoice Reviewer 🕵️📑")
 
     st.markdown(
@@ -56,6 +56,12 @@ def main() -> None:
                 type=["xlsx", "xls"],
                 help="Provide the invoice with the line items to review.",
             )
+            prompt_override = st.text_area(
+                "Optional reviewer instructions",
+                value=st.session_state.get("prompt_override", ""),
+                placeholder="e.g. Pay special attention to demurrage charges for terminal MICT.",
+                help="Temporarily extend the SAP BTP AI Core reviewer prompt for this run only.",
+            )
             submitted = st.form_submit_button("Start review")
 
         if submitted:
@@ -66,6 +72,7 @@ def main() -> None:
                 st.session_state["pdf_name"] = pdf_file.name or "contract.pdf"
                 st.session_state["invoice_bytes"] = invoice_file.getvalue()
                 st.session_state["invoice_name"] = invoice_file.name or "invoice.xlsx"
+                st.session_state["prompt_override"] = prompt_override.strip()
                 st.session_state["processing_started"] = time.time()
                 st.session_state["run_state"] = "processing"
                 st.rerun()
@@ -99,6 +106,7 @@ def main() -> None:
                     contract_summary_yaml=result["contract_summary_yaml"],
                     invoice_summary_yaml=result["invoice_summary_yaml"],
                     run_id=run_id,
+                    extra_instructions=st.session_state.get("prompt_override"),
                 )
 
                 processing_seconds = time.time() - st.session_state.get("processing_started", time.time())
@@ -141,6 +149,10 @@ def main() -> None:
 
         st.subheader("Compliance overview")
         st.markdown(analysis.get("comment_md", "No output."))
+
+        if st.session_state.get("prompt_override"):
+            with st.expander("Custom reviewer instructions"):
+                st.markdown(st.session_state["prompt_override"])
 
         with st.expander("Contract summary (YAML)"):
             st.code(result.get("contract_summary_yaml", ""), language="yaml")

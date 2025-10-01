@@ -220,9 +220,15 @@ class ContractAgentService:
         contract_summary_yaml: str,
         invoice_summary_yaml: Optional[str],
         run_id: str,
+        extra_instructions: Optional[str] = None,
     ) -> Dict[str, str]:
         logger.info("Invoking SAP BTP AI Core workflow for run %s", run_id)
-        state = self.workflow.invoke({
+        workflow = (
+            build_workflow(self.llm_client, extra_instructions=extra_instructions)
+            if extra_instructions and extra_instructions.strip()
+            else self.workflow
+        )
+        state = workflow.invoke({
             "contract_summary": contract_summary_yaml,
             "invoice_summary": invoice_summary_yaml or "",
         })

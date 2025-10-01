@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, TypedDict
+from typing import Any, Dict, Optional, TypedDict
 
 from langgraph.graph import END, StateGraph
 
@@ -11,13 +11,13 @@ class ContractAgentState(TypedDict, total=False):
     comment_md: str
 
 
-def build_workflow(client: Any):
+def build_workflow(client: Any, *, extra_instructions: Optional[str] = None):
     graph = StateGraph(ContractAgentState)
 
     def comment_node(state: ContractAgentState) -> Dict[str, str]:
         contract_summary = state.get("contract_summary", "")
         invoice_summary = state.get("invoice_summary", "")
-        user_prompt = (
+        base_instructions = (
             "You are an SAP contract compliance analyst.\n"
             "Determine whether each invoice line item is consistent with the contract clauses.\n"
             "For every line item you must state one of: Compliant, Non-compliant, Needs review.\n"
@@ -26,7 +26,15 @@ def build_workflow(client: Any):
             "Each charge_items entry includes a 'category' flag (either 'charge' or 'possible_charge'); treat 'possible_charge' rows cautiously and mark them Needs review unless supported by the contract.\n"
             "Under Line Item Review, render a markdown table with columns: Sheet, Line, Invoice Details, Contract Alignment, Status, Confidence.\n"
             "If exact matches are unavailable, infer the most plausible contract condition and indicate it explicitly.\n"
-            "If information is missing to decide, mark Status as 'Needs review' but still offer your best professional judgment.\n"
+            "If information is missing to decide, mark Status as 'Needs review' but still offer your best professional judgment."
+        )
+        if extra_instructions and extra_instructions.strip():
+            base_instructions = (
+                f"{base_instructions}\n\nAdditional reviewer guidance:\n{extra_instructions.strip()}"
+            )
+
+        user_prompt = (
+            f"{base_instructions}\n\n"
             "Contract summary:\n```yaml\n"
             f"{contract_summary}\n"
             "```\n"
