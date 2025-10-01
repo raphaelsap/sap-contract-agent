@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any, Dict, List
+import numpy as np
 
 from unstructured.partition.pdf import partition_pdf
 
@@ -9,7 +10,6 @@ from unstructured.partition.pdf import partition_pdf
 
 
 def _to_builtin(value):
-    import numpy as np
     if isinstance(value, np.generic):
         return value.item()
     if isinstance(value, dict):

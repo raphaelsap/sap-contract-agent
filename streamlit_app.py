@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any, Dict
 import logging
 import time
@@ -14,7 +13,6 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("streamlit_app")
 service = get_service()
 
-logging.basicConfig(level=logging.DEBUG)
 
 CUSTOM_CSS = """
 <style>
@@ -247,6 +245,9 @@ def format_duration(seconds: float) -> str:
 def render_results(run_id: str, result: Dict[str, str], analysis: Dict[str, str], processing_seconds: float) -> None:
     contract_payload = yaml.safe_load(result["contract_yaml"]) or {}
     invoice_payload = yaml.safe_load(result["invoice_yaml"]) or {}
+    contract_summary = yaml.safe_load(result["contract_summary_yaml"]) or {}
+    invoice_summary = yaml.safe_load(result["invoice_summary_yaml"]) or {}
+
     element_count = contract_payload.get("element_count", 0)
     sheets = invoice_payload.get("sheets", {})
     sheet_count = len(sheets)
@@ -275,60 +276,59 @@ def render_results(run_id: str, result: Dict[str, str], analysis: Dict[str, str]
             unsafe_allow_html=True,
         )
 
-    preview_texts = []
-    for element in contract_payload.get("elements", []):
-        text = (element or {}).get("text", "").strip()
-        if text:
-            preview_texts.append(text)
-        if len(preview_texts) == 3:
-            break
-
+    preview_texts = contract_summary.get("preview_text", [])
     if preview_texts:
         st.markdown("#### Contract Signal Preview")
         for snippet in preview_texts:
             st.markdown(f"<div class='preview-quote'>{snippet}</div>", unsafe_allow_html=True)
 
-    tabs = st.tabs(["Contract YAML", "Invoice YAML", "Comparison", "Next Actions"])
+    tabs = st.tabs(["Contract Summary", "Invoice Summary", "Agent Comment"])
 
     with tabs[0]:
         st.download_button(
-            label="Download contract YAML",
+            label="Download contract summary",
+            data=result["contract_summary_yaml"],
+            file_name=f"{run_id}_contract_summary.yaml",
+            mime="text/yaml",
+        )
+        st.download_button(
+            label="Download full contract YAML",
             data=result["contract_yaml"],
             file_name=f"{run_id}_contract.yaml",
             mime="text/yaml",
         )
-        st.code(result["contract_yaml"], language="yaml")
-        st.caption(f"Stored at {result['contract_yaml_path']}")
+        st.code(result["contract_summary_yaml"], language="yaml")
+        st.caption(
+            f"Summary stored at {result['contract_summary_path']} — full YAML stored at {result['contract_yaml_path']}"
+        )
 
     with tabs[1]:
         st.download_button(
-            label="Download invoice YAML",
+            label="Download invoice summary",
+            data=result["invoice_summary_yaml"],
+            file_name=f"{run_id}_invoice_summary.yaml",
+            mime="text/yaml",
+        )
+        st.download_button(
+            label="Download full invoice YAML",
             data=result["invoice_yaml"],
             file_name=f"{run_id}_invoice.yaml",
             mime="text/yaml",
         )
-        st.code(result["invoice_yaml"], language="yaml")
-        st.caption(f"Stored at {result['invoice_yaml_path']}")
+        st.code(result["invoice_summary_yaml"], language="yaml")
+        st.caption(
+            f"Summary stored at {result['invoice_summary_path']} — full YAML stored at {result['invoice_yaml_path']}"
+        )
 
     with tabs[2]:
         st.download_button(
-            label="Download comparison report",
-            data=analysis.get("comparison_md", ""),
-            file_name=f"{run_id}_comparison.md",
+            label="Download agent comment",
+            data=analysis.get("comment_md", ""),
+            file_name=f"{run_id}_comment.md",
             mime="text/markdown",
         )
-        st.markdown(analysis.get("comparison_md", ""))
-        st.caption(f"Stored at {analysis['comparison_path']}")
-
-    with tabs[3]:
-        st.download_button(
-            label="Download recommendations",
-            data=analysis.get("recommendation_md", ""),
-            file_name=f"{run_id}_recommendations.md",
-            mime="text/markdown",
-        )
-        st.markdown(analysis.get("recommendation_md", ""))
-        st.caption(f"Stored at {analysis['recommendation_path']}")
+        st.markdown(analysis.get("comment_md", ""))
+        st.caption(f"Stored at {analysis['comment_path']}")
 
     st.divider()
     time_saved = max(0, 7200 - processing_seconds)
@@ -337,6 +337,7 @@ def render_results(run_id: str, result: Dict[str, str], analysis: Dict[str, str]
         f"Your SAP agent just handled this review in **{format_duration(processing_seconds)}**. "
         f"That preserves **{format_duration(time_saved)}** from a standard two-hour manual reconciliation."
     )
+
 
 
 def main() -> None:
@@ -399,16 +400,20 @@ def main() -> None:
                 st.markdown("### Live Extraction Output")
                 contract_col, invoice_col = st.columns(2)
                 with contract_col:
-                    st.markdown("##### Contract YAML")
-                    st.code(result["contract_yaml"], language="yaml")
+                    st.markdown("##### Contract Summary")
+                    st.code(result["contract_summary_yaml"], language="yaml")
                 with invoice_col:
-                    st.markdown("##### Invoice YAML")
-                    st.code(result["invoice_yaml"], language="yaml")
+                    st.markdown("##### Invoice Summary")
+                    st.code(result["invoice_summary_yaml"], language="yaml")
 
             status.write("Comparing contract vs invoice with SAP GenAI...")
             st.toast("Consulting SAP BTP AI Core", icon="🤖")
             try:
-                analysis = service.run_analysis(result["contract_yaml"], result["invoice_yaml"], run_id)
+                analysis = service.run_analysis(
+                    contract_summary_yaml=result["contract_summary_yaml"],
+                    invoice_summary_yaml=result["invoice_summary_yaml"],
+                    run_id=run_id,
+                )
             except Exception as exc:
                 logger.exception("LLM analysis failed for run %s", run_id)
                 status.update(label="LLM analysis failed", state="error")

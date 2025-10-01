@@ -8,63 +8,41 @@ from .aicore_client import SAPAICoreClient
 
 
 class ContractAgentState(TypedDict, total=False):
-    contract_yaml: str
-    invoice_yaml: str
-    comparison_md: str
-    recommendation_md: str
+    contract_summary: str
+    invoice_summary: str
+    comment_md: str
 
 
-def build_workflow(client: SAPAICoreClient) -> StateGraph:
+def build_workflow(client: SAPAICoreClient):
     graph = StateGraph(ContractAgentState)
 
-    def compare_node(state: ContractAgentState) -> Dict[str, str]:
-        contract_yaml = state["contract_yaml"]
-        invoice_yaml = state["invoice_yaml"]
+    def comment_node(state: ContractAgentState) -> Dict[str, str]:
+        contract_summary = state.get("contract_summary", "")
+        invoice_summary = state.get("invoice_summary", "")
         user_prompt = (
-            "You are validating if invoiced line items align with the contract terms.\n"
-            "Summarize alignment and highlight discrepancies.\n"
-            "Return only markdown with sections: Summary, Alignments, Discrepancies.\n"
-            "Contract YAML:\n```yaml\n"
-            f"{contract_yaml}\n"
-            "```\nInvoice YAML:\n```yaml\n"
-            f"{invoice_yaml}\n"
-            "```"
+            "You are an SAP contract reviewer.\n"
+            "Given the YAML summaries below, draft a concise professional comment highlighting key obligations,"
+            " potential risks, and items worth attention.\n"
+            "Return markdown with sections: Key Points, Observations, Recommendations.\n"
+            "If invoice details are provided, reference them only when relevant.\n"
+            "Contract summary:\n```yaml\n"
+            f"{contract_summary}\n"
+            "```\n"
         )
+        if invoice_summary:
+            user_prompt += "Invoice summary:\n```yaml\n" + invoice_summary + "\n```\n"
         response = client.chat_completion(
             [
-                {"role": "system", "content": "You compare contracts and invoices."},
+                {"role": "system", "content": "You are a diligent SAP contract analyst."},
                 {"role": "user", "content": user_prompt},
             ],
             temperature=0.2,
-            max_tokens=1200,
+            max_tokens=900,
         )
-        return {"comparison_md": response}
+        return {"comment_md": response}
 
-    def suggestion_node(state: ContractAgentState) -> Dict[str, str]:
-        comparison = state.get("comparison_md", "")
-        user_prompt = (
-            "Based on the comparison summary, propose concrete next actions.\n"
-            "Return markdown with sections: Immediate Actions, Follow-Up Considerations.\n"
-            "Comparison summary:\n"
-            f"{comparison}"
-        )
-        response = client.chat_completion(
-            [
-                {
-                    "role": "system",
-                    "content": "You suggest practical next steps for contract invoice reviews.",
-                },
-                {"role": "user", "content": user_prompt},
-            ],
-            temperature=0.1,
-            max_tokens=600,
-        )
-        return {"recommendation_md": response}
-
-    graph.add_node("compare", compare_node)
-    graph.add_node("suggest", suggestion_node)
-    graph.set_entry_point("compare")
-    graph.add_edge("compare", "suggest")
-    graph.add_edge("suggest", END)
+    graph.add_node("comment", comment_node)
+    graph.set_entry_point("comment")
+    graph.add_edge("comment", END)
 
     return graph.compile()
