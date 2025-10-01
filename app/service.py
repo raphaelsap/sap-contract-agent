@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Dict, Optional
 
+import logging
 import yaml
 
 from .document_processing.excel_parser import parse_excel
@@ -13,9 +14,13 @@ from .utils.config import settings
 from .utils.storage import StorageManager
 
 
+logger = logging.getLogger(__name__)
+
+
 class ContractAgentService:
     def __init__(self) -> None:
         self.storage = StorageManager(settings.data_storage_path, settings.artefact_storage_path)
+        logger.info("Storage ready data=%s artefacts=%s", settings.data_storage_path, settings.artefact_storage_path)
         self.llm_client = SAPAICoreClient(
             client_id=settings.sap_aicore_client_id,
             client_secret=settings.sap_aicore_client_secret,
@@ -41,11 +46,16 @@ class ContractAgentService:
         pdf_payload = parse_pdf(pdf_path)
         excel_payload = parse_excel(excel_path)
 
+        logger.debug("PDF payload sample: %%s", str(list(pdf_payload.keys()))[:200])
+        logger.debug("Excel sheets: %%s", list(excel_payload.get("sheets", {}).keys()))
+
         pdf_yaml_text = yaml.safe_dump(pdf_payload, sort_keys=False, allow_unicode=False)
         excel_yaml_text = yaml.safe_dump(excel_payload, sort_keys=False, allow_unicode=False)
 
         pdf_yaml_path = self.storage.save_yaml(run_identifier, "contract", pdf_payload)
         excel_yaml_path = self.storage.save_yaml(run_identifier, "invoice", excel_payload)
+
+        logger.info("Persisted structured outputs for run %%s", run_identifier)
 
         return {
             "run_id": run_identifier,
@@ -56,10 +66,13 @@ class ContractAgentService:
         }
 
     def run_analysis(self, contract_yaml: str, invoice_yaml: str, run_id: str) -> Dict[str, str]:
+        logger.info("Invoking workflow for run %%s", run_id)
         state = self.workflow.invoke({
             "contract_yaml": contract_yaml,
             "invoice_yaml": invoice_yaml,
         })
+
+        logger.debug("Workflow response keys: %%s", list(state.keys()))
 
         comparison_md = state.get("comparison_md", "")
         recommendation_md = state.get("recommendation_md", "")

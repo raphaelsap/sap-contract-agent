@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any, Dict
+import logging
 import time
 
 import streamlit as st
@@ -9,7 +10,11 @@ import yaml
 
 from app.service import get_service
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("streamlit_app")
 service = get_service()
+
+logging.basicConfig(level=logging.DEBUG)
 
 CUSTOM_CSS = """
 <style>
@@ -339,6 +344,8 @@ def main() -> None:
     apply_custom_style()
     render_header()
 
+    extraction_container = st.container()
+
     with st.form("upload_form"):
         st.subheader("Deploy a new analysis mission")
         col_a, col_b = st.columns(2)
@@ -366,6 +373,7 @@ def main() -> None:
         run_id = service.storage.create_run_id()
 
         start_ts = time.time()
+        extraction_container.empty()
         with st.status("Agent pipeline active", expanded=True) as status:
             status.write("Initializing artefact vault...")
             st.toast("Agent secured uploads", icon="🧷")
@@ -373,22 +381,36 @@ def main() -> None:
             invoice_name = invoice_file.name or f"invoice_{run_id}.xlsx"
             contract_path = service.storage.save_raw_file(run_id, contract_name, pdf_file.getvalue())
             invoice_path = service.storage.save_raw_file(run_id, invoice_name, invoice_file.getvalue())
+            logger.info("Saved uploads for run %s at %s and %s", run_id, contract_path, invoice_path)
 
             status.write("Performing OCR and structuring contract...")
             st.toast("Running unstructured pipeline", icon="🛰️")
             try:
                 result = service.process_documents(pdf_path=contract_path, excel_path=invoice_path, run_id=run_id)
             except Exception as exc:
+                logger.exception("Document processing failed for run %s", run_id)
                 status.update(label="Processing failed", state="error")
                 st.error(f"Failed to process documents: {exc}")
                 st.info("If the message mentions Poppler or Tesseract, install those utilities and restart the agent.")
                 return
+
+            status.write("Displaying extracted YAML artifacts...")
+            with extraction_container.container():
+                st.markdown("### Live Extraction Output")
+                contract_col, invoice_col = st.columns(2)
+                with contract_col:
+                    st.markdown("##### Contract YAML")
+                    st.code(result["contract_yaml"], language="yaml")
+                with invoice_col:
+                    st.markdown("##### Invoice YAML")
+                    st.code(result["invoice_yaml"], language="yaml")
 
             status.write("Comparing contract vs invoice with SAP GenAI...")
             st.toast("Consulting SAP BTP AI Core", icon="🤖")
             try:
                 analysis = service.run_analysis(result["contract_yaml"], result["invoice_yaml"], run_id)
             except Exception as exc:
+                logger.exception("LLM analysis failed for run %s", run_id)
                 status.update(label="LLM analysis failed", state="error")
                 st.error(f"Failed to run analysis: {exc}")
                 return

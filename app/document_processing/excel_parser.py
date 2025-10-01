@@ -14,6 +14,8 @@ def _to_builtin(value):
         return {k: _to_builtin(v) for k, v in value.items()}
     if isinstance(value, list):
         return [_to_builtin(v) for v in value]
+    if isinstance(value, tuple):
+        return tuple(_to_builtin(v) for v in value)
     return value
 
 def parse_excel(path: Path) -> Dict[str, Any]:
@@ -21,10 +23,11 @@ def parse_excel(path: Path) -> Dict[str, Any]:
     output: Dict[str, Any] = {"source_file": path.name, "sheets": {}}
     for sheet_name, frame in workbook.items():
         frame = frame.fillna("")
+        columns = [_to_builtin(col) for col in frame.columns.tolist()]
         rows = _to_builtin(frame.to_dict(orient="records"))
         output["sheets"][sheet_name] = {
-            "row_count": len(frame.index),
-            "columns": list(frame.columns),
+            "row_count": int(frame.index.size),
+            "columns": columns,
             "rows": rows,
         }
-    return output
+    return _to_builtin(output)

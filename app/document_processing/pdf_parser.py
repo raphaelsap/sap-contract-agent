@@ -6,6 +6,20 @@ from typing import Any, Dict, List
 from unstructured.partition.pdf import partition_pdf
 
 
+
+
+def _to_builtin(value):
+    import numpy as np
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, dict):
+        return {k: _to_builtin(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_to_builtin(v) for v in value]
+    if isinstance(value, tuple):
+        return tuple(_to_builtin(v) for v in value)
+    return value
+
 def parse_pdf(path: Path) -> Dict[str, Any]:
     try:
         elements = partition_pdf(
@@ -19,9 +33,9 @@ def parse_pdf(path: Path) -> Dict[str, Any]:
     payload: Dict[str, Any] = {
         "source_file": path.name,
         "element_count": len(elements),
-        "elements": [element.to_dict() for element in elements],
+        "elements": [_to_builtin(element.to_dict()) for element in elements],
     }
-    return payload
+    return _to_builtin(payload)
 
 
 def pdf_yaml_summary(elements: List[Dict[str, Any]]) -> str:
