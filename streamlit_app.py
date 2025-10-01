@@ -8,7 +8,6 @@ import streamlit as st
 import yaml
 
 from app.service import get_service
-from app.utils.storage import StorageManager
 
 service = get_service()
 
@@ -203,12 +202,6 @@ def apply_custom_style() -> None:
     st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
 
-def _persist_upload(storage: StorageManager, run_id: str, uploaded_file: Any) -> Path:
-    content = uploaded_file.getvalue()
-    filename = uploaded_file.name or "uploaded_file"
-    return storage.save_raw_file(run_id, filename, content)
-
-
 def render_header() -> None:
     st.markdown(
         """
@@ -234,7 +227,19 @@ def render_header() -> None:
 
 
 
-def render_results(run_id: str, result: Dict[str, str], analysis: Dict[str, str]) -> None:
+
+def format_duration(seconds: float) -> str:
+    minutes, sec = divmod(int(seconds), 60)
+    hours, minutes = divmod(minutes, 60)
+    parts = []
+    if hours:
+        parts.append(f"{hours}h")
+    if minutes:
+        parts.append(f"{minutes}m")
+    parts.append(f"{sec}s")
+    return " ".join(parts)
+
+def render_results(run_id: str, result: Dict[str, str], analysis: Dict[str, str], processing_seconds: float) -> None:
     contract_payload = yaml.safe_load(result["contract_yaml"]) or {}
     invoice_payload = yaml.safe_load(result["invoice_yaml"]) or {}
     element_count = contract_payload.get("element_count", 0)
@@ -320,6 +325,14 @@ def render_results(run_id: str, result: Dict[str, str], analysis: Dict[str, str]
         st.markdown(analysis.get("recommendation_md", ""))
         st.caption(f"Stored at {analysis['recommendation_path']}")
 
+    st.divider()
+    time_saved = max(0, 7200 - processing_seconds)
+    st.markdown("#### Time Saved")
+    st.markdown(
+        f"Your SAP agent just handled this review in **{format_duration(processing_seconds)}**. "
+        f"That preserves **{format_duration(time_saved)}** from a standard two-hour manual reconciliation."
+    )
+
 
 def main() -> None:
     st.set_page_config(page_title="SAP BTP Contract Agent", layout="wide")
@@ -352,11 +365,14 @@ def main() -> None:
 
         run_id = service.storage.create_run_id()
 
+        start_ts = time.time()
         with st.status("Agent pipeline active", expanded=True) as status:
             status.write("Initializing artefact vault...")
             st.toast("Agent secured uploads", icon="🧷")
-            contract_path = _persist_upload(service.storage, run_id, pdf_file)
-            invoice_path = _persist_upload(service.storage, run_id, invoice_file)
+            contract_name = pdf_file.name or f"contract_{run_id}.pdf"
+            invoice_name = invoice_file.name or f"invoice_{run_id}.xlsx"
+            contract_path = service.storage.save_raw_file(run_id, contract_name, pdf_file.getvalue())
+            invoice_path = service.storage.save_raw_file(run_id, invoice_name, invoice_file.getvalue())
 
             status.write("Performing OCR and structuring contract...")
             st.toast("Running unstructured pipeline", icon="🛰️")
@@ -380,8 +396,9 @@ def main() -> None:
             status.update(label="Agent mission complete", state="complete")
             st.toast("Mission complete", icon="✅")
 
-        st.success(f"Run {run_id} finished.")
-        render_results(run_id, result, analysis)
+        processing_seconds = time.time() - start_ts
+        st.success(f"Run {run_id} finished in {format_duration(processing_seconds)}.")
+        render_results(run_id, result, analysis, processing_seconds)
 
 
 if __name__ == "__main__":
