@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import logging
-import re
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import yaml
 
@@ -13,43 +12,58 @@ from .llm.openai_client import OpenAIChatClient
 from .utils.config import settings
 from .utils.storage import StorageManager
 
-
 logger = logging.getLogger(__name__)
 
 
 class ContractAgentService:
+    def _parse_document(self, path: Path, *, label: str) -> Dict[str, Any]:
+        suffix = path.suffix.lower()
+        if suffix in {'.pdf'}:
+            payload = parse_pdf(path)
+        elif suffix in {'.xlsx', '.xls'}:
+            payload = parse_excel(path)
+        else:
+            raise ValueError(f"Unsupported {label} file type: {suffix or 'unknown'}")
+        if not payload:
+            payload = {'notice': f'{label} document returned empty payload'}
+        payload.setdefault('source_file', path.name)
+        payload.setdefault('document_type', suffix.lstrip('.'))
+        return payload
+
     def __init__(self) -> None:
         self.storage = StorageManager(settings.data_storage_path, settings.artefact_storage_path)
-        logger.info("Storage ready data=%s artefacts=%s", settings.data_storage_path, settings.artefact_storage_path)
         self.llm_client = OpenAIChatClient(
             api_key=settings.openai_api_key,
             api_base=settings.openai_api_base,
             model=settings.openai_model,
             request_timeout=settings.request_timeout,
         )
+        logger.info("Storage initialised data=%s artefacts=%s", settings.data_storage_path, settings.artefact_storage_path)
+
+    # ---------------------------- ingestion ----------------------------
 
     def process_documents(
         self,
         *,
-        pdf_path: Path,
-        excel_path: Path,
+        contract_path: Path,
+        invoice_path: Path,
         run_id: Optional[str] = None,
     ) -> Dict[str, str]:
         run_identifier = run_id or self.storage.create_run_id()
 
-        pdf_payload = parse_pdf(pdf_path)
-        excel_payload = parse_excel(excel_path)
+        contract_payload = self._parse_document(contract_path, label="contract")
+        invoice_payload = self._parse_document(invoice_path, label="invoice")
 
-        logger.debug("PDF payload sample: %s", str(list(pdf_payload.keys()))[:200])
-        logger.debug("Excel sheets: %s", list(excel_payload.get("sheets", {}).keys()))
+        contract_yaml_text = yaml.safe_dump(contract_payload, sort_keys=False, allow_unicode=False)
+        invoice_yaml_text = yaml.safe_dump(invoice_payload, sort_keys=False, allow_unicode=False)
 
-        contract_yaml_text = yaml.safe_dump(pdf_payload, sort_keys=False, allow_unicode=False)
-        invoice_yaml_text = yaml.safe_dump(excel_payload, sort_keys=False, allow_unicode=False)
+        self._assert_yaml_not_empty("contract", contract_yaml_text)
+        self._assert_yaml_not_empty("invoice", invoice_yaml_text)
 
-        contract_yaml_path = self.storage.save_yaml(run_identifier, "contract_raw", pdf_payload)
-        invoice_yaml_path = self.storage.save_yaml(run_identifier, "invoice_raw", excel_payload)
+        contract_yaml_path = self.storage.save_yaml(run_identifier, "contract_raw", contract_payload)
+        invoice_yaml_path = self.storage.save_yaml(run_identifier, "invoice_raw", invoice_payload)
 
-        logger.info("Persisted raw YAML for run %s", run_identifier)
+        logger.info("Parsed documents saved for run %s", run_identifier)
 
         return {
             "run_id": run_identifier,
@@ -59,45 +73,7 @@ class ContractAgentService:
             "invoice_yaml_path": str(invoice_yaml_path),
         }
 
-    # ----------------------- LLM helpers -----------------------
-
-    def clean_contract_yaml(self, run_id: str, contract_yaml: str) -> Dict[str, str]:
-        prompt = (
-            "You are preparing contract data for automated reasoning.\n"
-            "Clean the YAML below by removing irrelevant fields, grouping related clauses, and ensuring consistent keys.\n"
-            "Return well-formatted YAML with top-level keys: metadata, obligations, pricing, service_levels, termination, other_clauses."
-        )
-        cleaned = self.llm_client.chat_completion(
-            [
-                {"role": "system", "content": "You transform noisy contract extracts into clean YAML."},
-                {
-                    "role": "user",
-                    "content": f"{prompt}\n\nOriginal YAML:\n```yaml\n{contract_yaml}\n```",
-                },
-            ],
-            max_completion_tokens=1400,
-        )
-        path = self.storage.save_text(run_id, "contract_clean", cleaned, suffix=".yaml")
-        return {"content": cleaned, "path": str(path)}
-
-    def clean_invoice_yaml(self, run_id: str, invoice_yaml: str) -> Dict[str, str]:
-        prompt = (
-            "You are preparing invoice data for compliance checks.\n"
-            "From the YAML below extract a list named line_items where each item captures: sheet, line_number, terminal, movement_type, container_number, size, type, operator, quantity, amount, currency, description.\n"
-            "Infer reasonable defaults when fields are missing. Return YAML with keys: summary, line_items, notes."
-        )
-        cleaned = self.llm_client.chat_completion(
-            [
-                {"role": "system", "content": "You normalise invoice spreadsheets into comparable YAML."},
-                {
-                    "role": "user",
-                    "content": f"{prompt}\n\nOriginal YAML:\n```yaml\n{invoice_yaml}\n```",
-                },
-            ],
-            max_completion_tokens=1600,
-        )
-        path = self.storage.save_text(run_id, "invoice_clean", cleaned, suffix=".yaml")
-        return {"content": cleaned, "path": str(path)}
+    # ---------------------------- LLM calls ----------------------------
 
     def generate_compliance_report(
         self,
@@ -109,63 +85,102 @@ class ContractAgentService:
     ) -> Dict[str, str]:
         base_prompt = (
             "You are GPT-5 running within SAP. Produce a contract vs invoice compliance assessment.\n"
-            "Use the cleaned contract YAML and invoice line_items to determine status for each row.\n"
-            "Return markdown with sections: Compliance Overview, Line Item Review (table with Sheet, Line, Invoice Details, Contract Alignment, Status, Confidence), Risks & Follow-up, Suggested Next Actions."
+            "Contract YAML may contain either PDF page text under `elements` or structured spreadsheet data under `sheets`.\n"
+            "Invoice YAML follows the same pattern. Infer line items and monetary values even when only raw text is available.\n"
+            "Return markdown with sections: Compliance Overview, Line Item Review (table with Sheet, Line, Invoice Details, Contract Alignment, Status, Confidence), Risks & Follow-up, Suggested Next Actions.\n"
+            "If information is sparse, provide best-effort analysis rather than returning empty sections."
         )
         if extra_instructions and extra_instructions.strip():
             base_prompt = f"{base_prompt}\n\nAdditional reviewer instructions:\n{extra_instructions.strip()}"
 
-        response = self.llm_client.chat_completion(
-            [
+        response = self._chat_with_fallback(
+            messages=[
                 {"role": "system", "content": "You are a senior SAP contract compliance reviewer."},
                 {
                     "role": "user",
                     "content": (
-                        f"{base_prompt}\n\nClean contract YAML:\n```yaml\n{contract_yaml}\n```\n"
-                        f"Clean invoice YAML:\n```yaml\n{invoice_yaml}\n```"
+                        f"{base_prompt}\n\nContract YAML:\n```yaml\n{contract_yaml}\n```\n"
+                        f"Invoice YAML:\n```yaml\n{invoice_yaml}\n```"
                     ),
                 },
             ],
             max_completion_tokens=1800,
+            insist_message="Your previous draft was empty or unclear. Produce a detailed analysis with tables, bullets, and actionable follow-up suggestions.",
         )
         path = self.storage.save_markdown(run_id, "compliance_report", response)
         return {"content": response, "path": str(path)}
 
-    def generate_contract_review(self, run_id: str, contract_yaml: str) -> Dict[str, str]:
+    def generate_contract_review(
+        self,
+        run_id: str,
+        *,
+        contract_yaml: str,
+        extra_instructions: Optional[str] = None,
+    ) -> Dict[str, str]:
         prompt = (
-            "Summarise the contract's critical obligations, pricing mechanics, service levels, and termination clauses."
-            " Highlight potential risk areas and recommended controls in markdown."
+            "Summarise the contract's critical obligations, pricing mechanics, service levels, and termination clauses.\n"
+            "Contract YAML may expose `elements` (for PDFs) or `sheets` (for spreadsheets); use whichever data is available.\n"
+            "Highlight potential risk areas and recommended controls in markdown with bullet points."
         )
-        response = self.llm_client.chat_completion(
-            [
+        if extra_instructions and extra_instructions.strip():
+            prompt = f"{prompt}\n\nAdditional reviewer guidance:\n{extra_instructions.strip()}"
+
+        response = self._chat_with_fallback(
+            messages=[
                 {"role": "system", "content": "You prepare executive contract briefings."},
                 {
                     "role": "user",
-                    "content": f"{prompt}\n\nClean contract YAML:\n```yaml\n{contract_yaml}\n```",
+                    "content": f"{prompt}\n\nContract YAML:\n```yaml\n{contract_yaml}\n```",
                 },
             ],
             max_completion_tokens=1200,
+            insist_message="Provide at least five concrete observations covering obligations, pricing, service levels, risks, and recommended controls.",
         )
         path = self.storage.save_markdown(run_id, "contract_review", response)
         return {"content": response, "path": str(path)}
 
-    def generate_translation(self, run_id: str, contract_yaml: str) -> Dict[str, str]:
-        prompt = (
-            "Provide a Spanish translation of the key contract obligations and pricing terms."
-            " Present the result in markdown with sections mirrored to the source structure."
-        )
-        response = self.llm_client.chat_completion(
-            [
-                {"role": "system", "content": "You translate contract summaries accurately while preserving terminology."},
-                {
-                    "role": "user",
-                    "content": f"{prompt}\n\nClean contract YAML:\n```yaml\n{contract_yaml}\n```",
-                },
-            ],
-            max_completion_tokens=1200,
-        )
-        path = self.storage.save_markdown(run_id, "contract_translation_es", response)
-        return {"content": response, "path": str(path)}
+    # ---------------------------- helpers ----------------------------
+
+    def _assert_yaml_not_empty(self, label: str, yaml_text: str) -> None:
+        try:
+            data = yaml.safe_load(yaml_text) if yaml_text and yaml_text.strip() else None
+        except yaml.YAMLError:
+            logger.warning("Unable to parse %s YAML for validation", label)
+            return
+        if not data:
+            raise ValueError(
+                f"The {label} data appears empty after parsing. Please upload a richer {label} document or verify the file contents."
+            )
+
+    def _chat_with_fallback(
+        self,
+        *,
+        messages: List[Dict[str, str]],
+        max_completion_tokens: int,
+        insist_message: str,
+    ) -> str:
+        attempt_messages = list(messages)
+        for attempt in range(2):
+            response = self.llm_client.chat_completion(
+                attempt_messages,
+                max_completion_tokens=max_completion_tokens,
+            )
+            if self._looks_meaningful(response):
+                return response
+            attempt_messages = attempt_messages + [
+                {"role": "system", "content": insist_message}
+            ]
+        return response
+
+    @staticmethod
+    def _looks_meaningful(text: str) -> bool:
+        if not text:
+            return False
+        simplified = text.strip().lower()
+        if simplified in {"", "{}", "[]", "null", "none"}:
+            return False
+        alnum_count = sum(ch.isalnum() for ch in simplified)
+        return alnum_count >= 30
 
 
 def get_service() -> ContractAgentService:

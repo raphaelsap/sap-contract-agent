@@ -19,15 +19,28 @@ def _to_builtin(value):
     return value
 
 def parse_excel(path: Path) -> Dict[str, Any]:
-    workbook = pd.read_excel(path, sheet_name=None)
+    workbook = pd.read_excel(
+        path,
+        sheet_name=None,
+        dtype=str,
+        keep_default_na=False,
+    )
     output: Dict[str, Any] = {"source_file": path.name, "sheets": {}}
     for sheet_name, frame in workbook.items():
         frame = frame.fillna("")
         columns = [_to_builtin(col) for col in frame.columns.tolist()]
         rows = _to_builtin(frame.to_dict(orient="records"))
+        if not rows:
+            rows = [{col: "" for col in columns}]
         output["sheets"][sheet_name] = {
             "row_count": int(frame.index.size),
-            "columns": columns,
+            "columns": columns or [],
             "rows": rows,
+        }
+    if not output["sheets"]:
+        output["sheets"]["Sheet1"] = {
+            "row_count": 0,
+            "columns": [],
+            "rows": [{"notice": "Workbook contained no data"}],
         }
     return _to_builtin(output)

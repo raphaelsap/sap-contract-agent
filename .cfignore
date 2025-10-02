@@ -1,0 +1,27 @@
+# Python virtual environments
+.venv/
+venv/
+
+# Compiled files / caches
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Local data artifacts
+artefacts/
+data/
+documents/
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Git metadata
+.git/
+.gitignore
+
+# Other archives
+*.zip
+*.tar
+*.tar.gz

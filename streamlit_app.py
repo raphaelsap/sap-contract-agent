@@ -25,6 +25,16 @@ def format_duration(seconds: float) -> str:
     return " ".join(parts)
 
 
+def _looks_meaningful(text: str) -> bool:
+    if not text:
+        return False
+    simplified = text.strip().lower()
+    if simplified in {"", "{}", "[]", "null", "none"}:
+        return False
+    alnum_count = sum(ch.isalnum() for ch in simplified)
+    return alnum_count >= 30
+
+
 def reset_session() -> None:
     keys = list(st.session_state.keys())
     for key in keys:
@@ -34,14 +44,35 @@ def reset_session() -> None:
 
 def main() -> None:
     st.set_page_config(page_title="SAP Contract Invoice Reviewer", layout="centered")
-    st.image("https://www.sap.com/dam/application/shared/logos/sap-logo-svg.svg", width=100)
-    st.title("SAP Contract & Invoice Reviewer Agent")
-    st.caption("LLM assisted analysis")
+    svg_url = "https://www.sap.com/dam/application/shared/logos/sap-logo-svg.svg"
+
+    st.markdown(
+        f"""
+        <style>
+        .rounded-img {{
+            border-radius: 0%;
+            width: 100px;
+            height: 100px;
+            overflow: hidden;
+            display: inline-block;
+        }}
+        .rounded-img img {{
+            width: 100px;
+            height: 100px;
+            display: block;
+        }}
+        </style>
+        <span class="rounded-img">
+        <img src="{svg_url}" />
+        </span>
+        """,
+        unsafe_allow_html=True
+    )
+    st.title("SAP BTP Agent - Contract & Invoice Reviewer")
 
     st.markdown(
         "Upload the executed contract PDF and the corresponding invoice spreadsheet. "
-        "This assistant normalises the data, uses GPT-5 via OpenAI to compare each invoice line against the contract, "
-        "highlights potential risks, and provides a Spanish translation of the core obligations."
+        "This assistant parses both documents, calls the SAP BTP AI Core to compare line items against contract clauses, and surfaces risks with actionable follow-up."
     )
 
     if "run_state" not in st.session_state:
@@ -51,11 +82,11 @@ def main() -> None:
 
     if state == "ready":
         with st.form("upload_form"):
-            pdf_file = st.file_uploader("Contract PDF", type=["pdf"], help="Provide the signed contract in PDF format.")
+            contract_file = st.file_uploader("Contract document", type=["pdf", "xlsx", "xls"], help="Provide the contract in PDF or Excel format.")
             invoice_file = st.file_uploader(
-                "Invoice spreadsheet",
-                type=["xlsx", "xls"],
-                help="Provide the invoice with the line items to review.",
+                "Invoice document",
+                type=["pdf", "xlsx", "xls"],
+                help="Provide the invoice in PDF or Excel format.",
             )
             prompt_override = st.text_area(
                 "Optional reviewer instructions",
@@ -66,13 +97,13 @@ def main() -> None:
             submitted = st.form_submit_button("Start review")
 
         if submitted:
-            if pdf_file is None or invoice_file is None:
-                st.warning("Please upload both the contract PDF and the invoice spreadsheet before starting the review.")
+            if contract_file is None or invoice_file is None:
+                st.warning("Please upload both the contract and the invoice before starting the review.")
             else:
-                st.session_state["pdf_bytes"] = pdf_file.getvalue()
-                st.session_state["pdf_name"] = pdf_file.name or "contract.pdf"
+                st.session_state["contract_bytes"] = contract_file.getvalue()
+                st.session_state["contract_name"] = contract_file.name or "contract.pdf"
                 st.session_state["invoice_bytes"] = invoice_file.getvalue()
-                st.session_state["invoice_name"] = invoice_file.name or "invoice.xlsx"
+                st.session_state["invoice_name"] = invoice_file.name or "invoice.pdf"
                 st.session_state["prompt_override"] = prompt_override.strip()
                 st.session_state["processing_started"] = time.time()
                 st.session_state["run_state"] = "processing"
@@ -86,8 +117,8 @@ def main() -> None:
                 run_id = service.storage.create_run_id()
                 contract_path = service.storage.save_raw_file(
                     run_id,
-                    st.session_state.get("pdf_name", f"contract_{run_id}.pdf"),
-                    st.session_state.get("pdf_bytes", b""),
+                    st.session_state.get("contract_name", f"contract_{run_id}.pdf"),
+                    st.session_state.get("contract_bytes", b""),
                 )
                 invoice_path = service.storage.save_raw_file(
                     run_id,
@@ -97,40 +128,32 @@ def main() -> None:
 
                 status.write("Extracting contract clauses and invoice line items…")
                 result = service.process_documents(
-                    pdf_path=contract_path,
-                    excel_path=invoice_path,
+                    contract_path=contract_path,
+                    invoice_path=invoice_path,
                     run_id=run_id,
                 )
-
-                status.write("Cleaning contract YAML…")
-                contract_clean = service.clean_contract_yaml(run_id, result["contract_yaml"])
-
-                status.write("Cleaning invoice YAML…")
-                invoice_clean = service.clean_invoice_yaml(run_id, result["invoice_yaml"])
 
                 status.write("Running GPT-5 compliance analysis…")
                 compliance = service.generate_compliance_report(
                     run_id,
-                    contract_yaml=contract_clean["content"],
-                    invoice_yaml=invoice_clean["content"],
+                    contract_yaml=result["contract_yaml"],
+                    invoice_yaml=result["invoice_yaml"],
                     extra_instructions=st.session_state.get("prompt_override"),
                 )
 
                 status.write("Reviewing contract obligations…")
-                contract_review = service.generate_contract_review(run_id, contract_clean["content"])
-
-                status.write("Translating contract summary…")
-                translation = service.generate_translation(run_id, contract_clean["content"])
+                contract_review = service.generate_contract_review(
+                    run_id,
+                    contract_yaml=result["contract_yaml"],
+                    extra_instructions=st.session_state.get("prompt_override"),
+                )
 
                 processing_seconds = time.time() - st.session_state.get("processing_started", time.time())
                 st.session_state["result_bundle"] = {
                     "run_id": run_id,
                     "result": result,
-                    "contract_clean": contract_clean,
-                    "invoice_clean": invoice_clean,
                     "compliance": compliance,
                     "contract_review": contract_review,
-                    "translation": translation,
                     "processing_seconds": processing_seconds,
                 }
                 st.session_state["run_state"] = "done"
@@ -141,8 +164,8 @@ def main() -> None:
                 st.session_state["run_state"] = "error"
                 status.update(label="Review failed", state="error")
             finally:
-                st.session_state.pop("pdf_bytes", None)
-                st.session_state.pop("pdf_name", None)
+                st.session_state.pop("contract_bytes", None)
+                st.session_state.pop("contract_name", None)
                 st.session_state.pop("invoice_bytes", None)
                 st.session_state.pop("invoice_name", None)
         st.rerun()
@@ -159,49 +182,58 @@ def main() -> None:
         bundle: Dict[str, Any] = st.session_state.get("result_bundle", {})
         run_id = bundle.get("run_id")
         result = bundle.get("result", {})
-        contract_clean = bundle.get("contract_clean", {})
-        invoice_clean = bundle.get("invoice_clean", {})
         compliance = bundle.get("compliance", {})
         contract_review = bundle.get("contract_review", {})
-        translation = bundle.get("translation", {})
         processing_seconds = bundle.get("processing_seconds", 0.0)
 
         st.success(f"Review complete for run {run_id} in {format_duration(processing_seconds)}.")
 
+        compliance_text = compliance.get("content", "")
+        if not _looks_meaningful(compliance_text):
+            st.warning("Compliance analysis looked empty. Re-running with stricter instructions…")
+            compliance = service.generate_compliance_report(
+                run_id,
+                contract_yaml=result.get("contract_yaml", ""),
+                invoice_yaml=result.get("invoice_yaml", ""),
+                extra_instructions=(st.session_state.get("prompt_override") or "") + "\nEnsure the response contains a detailed table, bullet points, and explicit conclusions.",
+            )
+            compliance_text = compliance.get("content", "")
+            bundle["compliance"] = compliance
+            st.session_state["result_bundle"] = bundle
+
         st.subheader("Compliance overview")
-        st.markdown(compliance.get("content", "No output."))
+        st.markdown(compliance_text or "No output.")
 
         if st.session_state.get("prompt_override"):
             with st.expander("Custom reviewer instructions"):
                 st.markdown(st.session_state["prompt_override"])
 
-        with st.expander("Cleaned contract YAML"):
-            st.code(contract_clean.get("content", ""), language="yaml")
-            if contract_clean.get("path"):
-                st.caption(f"Stored at {contract_clean['path']}")
-
-        with st.expander("Cleaned invoice YAML"):
-            st.code(invoice_clean.get("content", ""), language="yaml")
-            if invoice_clean.get("path"):
-                st.caption(f"Stored at {invoice_clean['path']}")
-
-        with st.expander("Contract risk review"):
-            st.markdown(contract_review.get("content", ""))
-            if contract_review.get("path"):
-                st.caption(f"Stored at {contract_review['path']}")
-
-        with st.expander("Contract summary translation (Spanish)"):
-            st.markdown(translation.get("content", ""))
-            if translation.get("path"):
-                st.caption(f"Stored at {translation['path']}")
-
-        with st.expander("Raw artefacts"):
+        with st.expander("Contract YAML"):
             st.code(result.get("contract_yaml", ""), language="yaml")
             if result.get("contract_yaml_path"):
-                st.caption(f"Raw contract YAML stored at {result['contract_yaml_path']}")
+                st.caption(f"Stored at {result['contract_yaml_path']}")
+
+        with st.expander("Invoice YAML"):
             st.code(result.get("invoice_yaml", ""), language="yaml")
             if result.get("invoice_yaml_path"):
-                st.caption(f"Raw invoice YAML stored at {result['invoice_yaml_path']}")
+                st.caption(f"Stored at {result['invoice_yaml_path']}")
+
+        review_text = contract_review.get("content", "")
+        if not _looks_meaningful(review_text):
+            contract_review = service.generate_contract_review(
+                run_id,
+                contract_yaml=result.get("contract_yaml", ""),
+                extra_instructions="Your previous summary was too light. Provide at least five concrete insights covering obligations, pricing, service levels, risks, and controls.",
+            )
+            review_text = contract_review.get("content", "")
+            bundle["contract_review"] = contract_review
+            st.session_state["result_bundle"] = bundle
+
+        if _looks_meaningful(review_text):
+            with st.expander("Contract risk review"):
+                st.markdown(review_text)
+                if contract_review.get("path"):
+                    st.caption(f"Stored at {contract_review['path']}")
 
         time_saved = max(0.0, 7200 - processing_seconds)
         st.info(

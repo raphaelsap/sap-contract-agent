@@ -1,5 +1,5 @@
 streamlit>=1.33
-unstructured[local-inference,pdf]>=0.12.5
+pypdf>=4.2.0
 pandas>=2.2
 openpyxl>=3.1
 PyYAML>=6.0

@@ -1,7 +1,7 @@
 applications:
   - name: sap-contract-agent
-    memory: 2G
-    disk_quota: 2G
+    memory: 4096M
+    disk_quota: 4096M
     instances: 1
     routes:
       - route: sap-contract-agent.cfapps.eu11.hana.ondemand.com

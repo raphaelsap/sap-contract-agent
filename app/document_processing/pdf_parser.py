@@ -1,47 +1,44 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any, Dict, List
-import numpy as np
 
-from unstructured.partition.pdf import partition_pdf
+from pypdf import PdfReader
 
+logger = logging.getLogger(__name__)
 
-
-
-def _to_builtin(value):
-    if isinstance(value, np.generic):
-        return value.item()
-    if isinstance(value, dict):
-        return {k: _to_builtin(v) for k, v in value.items()}
-    if isinstance(value, list):
-        return [_to_builtin(v) for v in value]
-    if isinstance(value, tuple):
-        return tuple(_to_builtin(v) for v in value)
-    return value
 
 def parse_pdf(path: Path) -> Dict[str, Any]:
-    try:
-        elements = partition_pdf(
-            filename=str(path),
-            strategy="hi_res",
-            infer_table_structure=True,
-        )
-    except Exception as exc:
-        hint = ("Install Poppler and Tesseract and ensure they are available on the PATH. Original error: ")
-        raise RuntimeError(hint + str(exc)) from exc
+    reader = PdfReader(str(path))
+    elements: List[Dict[str, Any]] = []
+
+    for index, page in enumerate(reader.pages, start=1):
+        try:
+            text = page.extract_text() or ""
+        except Exception as exc:  # pragma: no cover - safety net
+            logger.warning("Failed to extract text from page %s of %s: %s", index, path.name, exc)
+            text = ""
+        text = text.strip()
+        if not text:
+            text = "[No selectable text on this page – likely scanned or image-based.]"
+        elements.append({"page_number": index, "text": text})
+
+    if not elements:
+        elements.append({"page_number": 1, "text": "[PDF contained no extractable pages.]"})
+
     payload: Dict[str, Any] = {
         "source_file": path.name,
-        "element_count": len(elements),
-        "elements": [_to_builtin(element.to_dict()) for element in elements],
+        "page_count": len(elements),
+        "elements": elements,
     }
-    return _to_builtin(payload)
+    return payload
 
 
 def pdf_yaml_summary(elements: List[Dict[str, Any]]) -> str:
     preview: List[str] = []
-    for item in elements[:10]:
-        text = item.get("text", "").strip()
+    for item in elements[:5]:
+        text = (item.get("text") or "").strip()
         if text:
-            preview.append(text)
+            preview.append(f"Page {item.get('page_number')}: {text[:200]}")
     return "\n".join(preview)
